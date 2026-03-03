@@ -1,6 +1,6 @@
 import torch, os, argparse, accelerate
 from diffsynth.core import UnifiedDataset
-from diffsynth.pipelines.qwen_image import QwenImagePipeline, ModelConfig
+from diffsynth.pipelines.qwen_image import QwenImagePipeline,MyQwenImagePipeline, ModelConfig
 from diffsynth.diffusion import *
 from diffsynth.core.data.operators import *
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -28,7 +28,7 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
         model_configs = self.parse_model_configs(model_paths, model_id_with_origin_paths, fp8_models=fp8_models, offload_models=offload_models, device=device)
         tokenizer_config = ModelConfig(model_id="Qwen/Qwen-Image", origin_file_pattern="tokenizer/") if tokenizer_path is None else ModelConfig(tokenizer_path)
         processor_config = ModelConfig(model_id="Qwen/Qwen-Image-Edit", origin_file_pattern="processor/") if processor_path is None else ModelConfig(processor_path)
-        self.pipe = QwenImagePipeline.from_pretrained(torch_dtype=torch.bfloat16, device=device, model_configs=model_configs, tokenizer_config=tokenizer_config, processor_config=processor_config)
+        self.pipe = MyQwenImagePipeline.from_pretrained(torch_dtype=torch.bfloat16, device=device, model_configs=model_configs, tokenizer_config=tokenizer_config, processor_config=processor_config)
         self.pipe = self.split_pipeline_units(task, self.pipe, trainable_models, lora_base_model)
 
         # Training mode
@@ -98,6 +98,7 @@ def qwen_image_parser():
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
     parser = add_general_config(parser)
     parser = add_image_size_config(parser)
+
     parser.add_argument("--tokenizer_path", type=str, default=None, help="Path to tokenizer.")
     parser.add_argument("--processor_path", type=str, default=None, help="Path to the processor. If provided, the processor will be used for image editing.")
     parser.add_argument("--zero_cond_t", default=False, action="store_true", help="A special parameter introduced by Qwen-Image-Edit-2511. Please enable it for this model.")
@@ -108,7 +109,7 @@ if __name__ == "__main__":
     parser = qwen_image_parser()
     args = parser.parse_args()
     accelerator = accelerate.Accelerator(
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,log_with='wandb',
         kwargs_handlers=[accelerate.DistributedDataParallelKwargs(find_unused_parameters=args.find_unused_parameters)],
     )
     dataset = UnifiedDataset(

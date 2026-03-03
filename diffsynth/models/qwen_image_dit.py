@@ -1,7 +1,7 @@
 import torch, math, functools
 import torch.nn as nn
 from typing import Tuple, Optional, Union, List
-from einops import rearrange
+from einops import rearrange,repeat
 from .general_modules import TimestepEmbeddings, RMSNorm, AdaLayerNorm
 
 try:
@@ -56,7 +56,7 @@ def apply_rotary_emb_qwen(
     x_out = torch.view_as_real(x_rotated * freqs_cis).flatten(3)
     return x_out.type_as(x)
 
-
+# img_q = apply_rotary_emb_qwen(img_q, img_freqs)
 class QwenEmbedRope(nn.Module):
     def __init__(self, theta: int, axes_dim: list[int], scale_rope=False):
         super().__init__()
@@ -129,11 +129,12 @@ class QwenEmbedRope(nn.Module):
         vid_freqs = []
         max_vid_index = 0
         for idx, fhw in enumerate(video_fhw):
+            # print(f'idx,fhw{idx}{fhw}')idx,fhw 1 (4, 46, 90)
             frame, height, width = fhw
             rope_key = f"{idx}_{height}_{width}"
-
             if rope_key not in self.rope_cache:
                 seq_lens = frame * height * width
+                # print(seq_lens)#不同
                 freqs_pos = self.pos_freqs.split([x // 2 for x in self.axes_dim], dim=1)
                 freqs_neg = self.neg_freqs.split([x // 2 for x in self.axes_dim], dim=1)
                 freqs_frame = freqs_pos[0][idx : idx + frame].view(frame, 1, 1, -1).expand(frame, height, width, -1)
@@ -141,15 +142,26 @@ class QwenEmbedRope(nn.Module):
                     freqs_height = torch.cat(
                         [freqs_neg[1][-(height - height // 2) :], freqs_pos[1][: height // 2]], dim=0
                     )
+                    # print(f'freqs_height{freqs_height.shape}')
                     freqs_height = freqs_height.view(1, height, 1, -1).expand(frame, height, width, -1)
                     freqs_width = torch.cat([freqs_neg[2][-(width - width // 2) :], freqs_pos[2][: width // 2]], dim=0)
+                    # print(f'freqs_width{freqs_width.shape}')#[90, 28]
                     freqs_width = freqs_width.view(1, 1, width, -1).expand(frame, height, width, -1)
-
+                    # print(f'freqs_width{freqs_width.shape}')#freqs_widthtorch.Size([1, [46, 90], 28])[4, [46, 90], 28]
+                    # print(f'freqs_height{freqs_height.shape}')#freqs_heighttorch.Size([1, [46, 90], 28])
                 else:
                     freqs_height = freqs_pos[1][:height].view(1, height, 1, -1).expand(frame, height, width, -1)
                     freqs_width = freqs_pos[2][:width].view(1, 1, width, -1).expand(frame, height, width, -1)
+                if frame==1:
+                    freqs = torch.cat([freqs_frame, freqs_height, freqs_width], dim=-1).reshape(seq_lens, -1)
+                else:
+                    freqs = torch.cat([freqs_frame, freqs_height, freqs_width], dim=-1).reshape(frame,seq_lens//frame, -1)
+                # print(f'freqs{freqs.shape}')
+                # freqstorch.Size([7938, 64])b=1
+                # freqstorch.Size([4140, 64])b=1
+                # freqstorch.Size([15876, 64])b=2
+                # freqstorch.Size([8280, 64])b=2
 
-                freqs = torch.cat([freqs_frame, freqs_height, freqs_width], dim=-1).reshape(seq_lens, -1)
                 self.rope_cache[rope_key] = freqs.clone().contiguous()
             vid_freqs.append(self.rope_cache[rope_key])
 
@@ -160,8 +172,16 @@ class QwenEmbedRope(nn.Module):
 
         max_len = max(txt_seq_lens)
         txt_freqs = self.pos_freqs[max_vid_index : max_vid_index + max_len, ...]
-        vid_freqs = torch.cat(vid_freqs, dim=0)
-
+        if frame!=1:
+            txt_freqs = txt_freqs.unsqueeze(0).unsqueeze(1)
+            txt_freqs = txt_freqs.expand(frame, 1, -1, -1)
+        # if frame==1:
+        #     for i, t in enumerate(vid_freqs):
+        #         print(f"张量 {i}: {t.shape}")
+        vid_freqs = torch.cat(vid_freqs, dim=0) if frame==1 else torch.cat(vid_freqs, dim=1).unsqueeze(1)
+        # print(f'vid_freqs{vid_freqs.shape}')#vid_freqstorch.Size([12078, 64])vid_freqstorch.Size([24156, 64])
+        # print(f'txt_freqs{txt_freqs.shape}')#txt_freqstorch.Size([1398, 64])txt_freqstorch.Size([1398, 64])
+        # assert False
         return vid_freqs, txt_freqs
 
 
@@ -411,11 +431,18 @@ class QwenDoubleStreamAttention(nn.Module):
         
         if image_rotary_emb is not None:
             img_freqs, txt_freqs = image_rotary_emb
+            # print(img_freqs.shape, img_q.shape)
+            # torch.Size([12078, 64]) torch.Size([1, 24, 12078, 128])
+            # torch.Size([24156, 64]) torch.Size([2, 24, 12078, 128])
+            # print(txt_freqs.shape, txt_q.shape)
+            #torch.Size([1398, 64]) torch.Size([2, 24, 1398, 128])
+            #torch.Size([1398, 64]) torch.Size([1, 24, 1398, 128])
+            # assert False
             img_q = apply_rotary_emb_qwen(img_q, img_freqs)
             img_k = apply_rotary_emb_qwen(img_k, img_freqs)
             txt_q = apply_rotary_emb_qwen(txt_q, txt_freqs)
             txt_k = apply_rotary_emb_qwen(txt_k, txt_freqs)
-
+        # print(txt_v.shape, img_v.shape)
         joint_q = torch.cat([txt_q, img_q], dim=2)
         joint_k = torch.cat([txt_k, img_k], dim=2)
         joint_v = torch.cat([txt_v, img_v], dim=2)
@@ -521,7 +548,8 @@ class QwenImageTransformerBlock(nn.Module):
 
         txt_normed = self.txt_norm1(text)
         txt_modulated, txt_gate = self._modulate(txt_normed, txt_mod_attn)
-
+        # print(f'img_modulated{img_modulated.shape}')b
+        # print(f'txt_modulated{txt_modulated.shape}')1
         img_attn_out, txt_attn_out = self.attn(
             image=img_modulated,
             text=txt_modulated,
@@ -544,7 +572,8 @@ class QwenImageTransformerBlock(nn.Module):
 
         image = image + img_gate_2 * img_mlp_out
         text = text + txt_gate_2 * txt_mlp_out
-
+        # print(f'out_image {image.shape}')
+        # print(f'out_text {text.shape}')
         return text, image
 
 

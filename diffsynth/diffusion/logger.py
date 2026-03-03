@@ -10,11 +10,12 @@ class ModelLogger:
         self.num_steps = 0
 
 
-    def on_step_end(self, accelerator: Accelerator, model: torch.nn.Module, save_steps=None):
+    def on_step_end(self, accelerator: Accelerator, model: torch.nn.Module, lr,loss,save_steps=None):
         self.num_steps += 1
         if save_steps is not None and self.num_steps % save_steps == 0:
             self.save_model(accelerator, model, f"step-{self.num_steps}.safetensors")
-
+        logs = {"loss": loss, "lr": lr}
+        accelerator.log(logs, step=self.num_steps)
 
     def on_epoch_end(self, accelerator: Accelerator, model: torch.nn.Module, epoch_id):
         accelerator.wait_for_everyone()
