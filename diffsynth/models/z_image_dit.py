@@ -6,8 +6,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 
-from torch.nn import RMSNorm
+from .general_modules import RMSNorm
 from ..core.attention import attention_forward
+from ..core.device.npu_compatible_device import IS_NPU_AVAILABLE, get_device_type
 from ..core.gradient import gradient_checkpoint_forward
 
 
@@ -39,7 +40,7 @@ class TimestepEmbedder(nn.Module):
 
     @staticmethod
     def timestep_embedding(t, dim, max_period=10000):
-        with torch.amp.autocast("cuda", enabled=False):
+        with torch.amp.autocast(get_device_type(), enabled=False):
             half = dim // 2
             freqs = torch.exp(
                 -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device) / half
@@ -104,7 +105,7 @@ class Attention(torch.nn.Module):
 
         # Apply RoPE
         def apply_rotary_emb(x_in: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
-            with torch.amp.autocast("cuda", enabled=False):
+            with torch.amp.autocast(get_device_type(), enabled=False):
                 x = torch.view_as_complex(x_in.float().reshape(*x_in.shape[:-1], -1, 2))
                 freqs_cis = freqs_cis.unsqueeze(2)
                 x_out = torch.view_as_real(x * freqs_cis).flatten(3)
@@ -315,7 +316,10 @@ class RopeEmbedder:
         result = []
         for i in range(len(self.axes_dims)):
             index = ids[:, i]
-            result.append(self.freqs_cis[i][index])
+            if IS_NPU_AVAILABLE:
+                result.append(torch.index_select(self.freqs_cis[i], 0, index))
+            else:
+                result.append(self.freqs_cis[i][index])
         return torch.cat(result, dim=-1)
 
 
