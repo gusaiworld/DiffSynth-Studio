@@ -1,4 +1,4 @@
-# qwen-imagee-dit-去摩尔纹项目README
+# qwen-imagee-dit-demoire
 
 ![Python版本](https://img.shields.io/badge/Python-3.8+-blue) ![许可证](https://img.shields.io/badge/License-MIT-orange)
 
@@ -29,10 +29,9 @@ git clone https://github.com/gusaiworld/DiffSynth-Studio.git
 cd DiffSynth-Studio
 pip install -e .
 ```
-requirements.txt 包含核心依赖：qwen-image-edit、opencv-python、pillow、numpy等，将自动完成安装。
 
 ## 🚀 快速开始
-本项目支持 **单张图像去摩尔纹** 和 **批量图像去摩尔纹** 两种方式，新手推荐使用命令行快速体验。
+本项目支持 **单张图像去摩尔纹** 和 **批量图像去摩尔纹** 两种方式，推荐使用命令行快速体验。
 
 ### 方式1：命令行调用（推荐）
 #### 单张图像去摩尔纹
@@ -60,11 +59,12 @@ python moire_removal.py --input_dir input_folder --output_dir output_folder
 ### 场景1：屏幕截图摩尔纹
 原图：screen_original.jpg | 去纹后：screen_processed.jpg
 
-### 场景2：印刷品拍摄摩尔纹
-原图：print_original.jpg | 去纹后：print_processed.jpg
-
-### 场景3：网格物体摩尔纹
-原图：grid_original.jpg | 去纹后：grid_processed.jpg
+### 场景2：摩尔纹数据集
+| 对比项    | 图片展示                                   |
+|--------|----------------------------------------|
+| moire图 | ![0282_moire](./assets/0296_moire.jpg) |
+| espnet | ![test_0282](./assets/test_0296.jpg)   |
+| our    | ![merged_282](./assets/merged_296.jpg) |
 
 > 注：实际效果请参考项目test文件夹中的示例图像。
 
